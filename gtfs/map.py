@@ -1,7 +1,7 @@
 import json
 import folium
 
-INPUT_FILE = "osm_data/torino_transit.geojson"
+INPUT_FILE = "gtt_gtfs_data/stops.geojson"
 
 
 def get_color(route_type):
@@ -19,12 +19,6 @@ def create_map(input_file):
 
     features = data.get("features", [])
     print(f"Total features: {len(features)}")
-
-    stop_tags = {
-        f["geometry"]["coordinates"][0]: f
-        for f in features
-        if f["geometry"]["type"] == "Point"
-    }
 
     m = folium.Map(location=[45.0703, 7.6869], zoom_start=12, tiles="cartodbpositron")
 

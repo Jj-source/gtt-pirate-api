@@ -1,31 +1,20 @@
 import json
 import requests
-import folium
+
+import logging
+
+logging.basicConfig(
+    filename="osm_debug.log",
+    level=logging.DEBUG,
+    format="%(levelname)s %(message)s",
+    filemode="w"
+)
 
 EXCLUDE_OPERATORS = ["flixbus", "itabus", "marino", "eurolines", "blablacar"]
-EXCLUDE_NETWORKS = ["Flixbus"]
+EXCLUDE_NETWORKS = ["flixbus"]
 EXCLUDE_NAMES = []
 
-
-def fetch_lines():
-    query = """
-        [out:json][timeout:90];
-        area["name"="Torino"]["admin_level"="8"]->.a;
-        (
-        relation(area.a)["type"="route"]
-        ["route"~"bus|tram|subway"]
-        ["operator"!~"flixbus|itabus|marino",i]
-        ["ref"!~"frecciarossa",i]
-        ["network"!~"flixbus|TGV",i]
-        ["name"!~"speciale|festivo",i];
-        );
-        out geom;
-        """
-    url = "https://overpass-api.de/api/interpreter"
-    headers = {"User-Agent": "TurinTransitMapper/1.0"}
-    response = requests.post(url, data={"data": query}, headers=headers, timeout=120)
-    response.raise_for_status()
-    return response.json()
+STOP_ROLES = {"stop", "stop_position", "platform"}
 
 def fetch_all():
     query = """
@@ -48,56 +37,6 @@ def fetch_all():
     response.raise_for_status()
     return response.json()
 
-def fetch_transit_network():
-    routes_query = """
-    [out:json][timeout:90];
-    area["name"="Torino"]["admin_level"="8"]->.a;
-    (
-      relation(area.a)
-      ["type"="route"]
-        ["route"~"bus|tram|subway"]
-        ["operator"!~"flixbus|itabus|marino",i]
-        ["ref"!~"frecciarossa",i]
-        ["network"!~"flixbus|TGV",i]
-        ["name"!~"speciale|festivo",i];
-    );
-    out geom;
-    """
-
-    stops_query = """
-[out:json][timeout:90];
-area["name"="Torino"]["admin_level"="8"]->.a;
-(
-  relation(area.a)["type"="route"]["route"~"bus|tram|subway|train"]["operator"!~"[Ff]lixbus|[Ii]tabus|[Mm]arino"];
-)->.routes;
-(
-  node(r.routes)["public_transport"="platform"];
-  node(r.routes)["highway"="bus_stop"];
-);
-out body;
-"""
-
-    url = "https://overpass-api.de/api/interpreter"
-    headers = {"User-Agent": "TurinTransitMapper/1.0"}
-
-    print("Fetching routes...")
-    r1 = requests.post(url, data={"data": routes_query}, headers=headers, timeout=120)
-    r1.raise_for_status()
-    routes_data = r1.json()
-
-    print("Fetching stops...")
-    r2 = requests.post(url, data={"data": stops_query}, headers=headers, timeout=120)
-    r2.raise_for_status()
-    stops_data = r2.json()
-    
-    print("Routes elements:", len(routes_data.get("elements", [])))
-    print("Stops elements:", len(stops_data.get("elements", [])))
-    if len(routes_data.get("elements", [])) == 0 or len(stops_data.get("elements", [])) == 0:
-        print(r1.text[:500])
-
-    routes_data["elements"] += stops_data["elements"]
-    return routes_data
-
 def is_excluded(props):
     operator = props.get("operator", "").lower()
     network = props.get("network", "").lower()
@@ -110,16 +49,15 @@ def is_excluded(props):
         return True
     return False
 
-
 def save_as_geojson(data, filename="osm_data/torino_transit.geojson"):
-    stop_tags = {
+    node_tags = {
         el["id"]: el.get("tags", {})
         for el in data.get("elements", [])
         if el["type"] == "node"
     }
 
     features = []
-    seen_stops = set()
+    seen_node_ids = set()
 
     for rel in data.get("elements", []):
         if rel["type"] != "relation" or "members" not in rel:
@@ -142,16 +80,22 @@ def save_as_geojson(data, filename="osm_data/torino_transit.geojson"):
             })
 
         for member in rel["members"]:
-            if member["type"] != "node" or member.get("role") not in ("stop", "stop_position"):
+            if member["type"] != "node" or member.get("role") not in STOP_ROLES:
                 continue
             node_id = member["ref"]
-            if node_id in seen_stops:
+            if node_id in seen_node_ids:
                 continue
-            seen_stops.add(node_id)
+            seen_node_ids.add(node_id)
+            
+            if member["lon"] is None or member["lat"] is None:
+                logging.warning(f"node {node_id} role={member.get('role')} missing coords")
+            if not node_tags:
+                logging.warning(f"node {node_id} role={member.get('role')} missing tags")
+            
             features.append({
                 "type": "Feature",
                 "geometry": {"type": "Point", "coordinates": [member["lon"], member["lat"]]},
-                "properties": stop_tags.get(node_id, {})
+                "properties": node_tags.get(node_id, {})
             })
 
     geojson_data = {"type": "FeatureCollection", "features": features}
@@ -161,4 +105,6 @@ def save_as_geojson(data, filename="osm_data/torino_transit.geojson"):
 
 
 data = fetch_all()
+types = [el["type"] for el in data["elements"]]
+print("relations:", types.count("relation"), "nodes:", types.count("node"))
 save_as_geojson(data)
