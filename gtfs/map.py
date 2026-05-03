@@ -16,62 +16,44 @@ def get_color(route_type):
 def create_map(input_file):
     with open(input_file) as f:
         data = json.load(f)
-    if not data:
-        return
-      
-    for rel in data.get("elements", []):
-      if rel["type"] != "relation":
-          continue
-      for member in rel.get("members", []):
-          if member["type"] == "node":
-              print(member)
-              break
-      break
-    return
+
+    features = data.get("features", [])
+    print(f"Total features: {len(features)}")
 
     stop_tags = {
-        el["id"]: {"lat": el["lat"], "lon": el["lon"], "tags": el.get("tags", {})}
-        for el in data.get("elements", [])
-        if el["type"] == "node" and "lat" in el
+        f["geometry"]["coordinates"][0]: f
+        for f in features
+        if f["geometry"]["type"] == "Point"
     }
 
     m = folium.Map(location=[45.0703, 7.6869], zoom_start=12, tiles="cartodbpositron")
-    seen_stops = set()
 
-    for rel in data.get("elements", []):
-        if rel["type"] != "relation":
-            continue
+    for feature in features:
+        props = feature["properties"]
+        geom = feature["geometry"]
+        route_type = props.get("route", "")
 
-        tags = rel.get("tags", {})
-        route_type = tags.get("route")
-        ref = tags.get("ref", "")
-        name = tags.get("name", "")
-
-        for member in rel.get("members", []):
-            if "geometry" in member:
-                locations = [(p["lat"], p["lon"]) for p in member["geometry"]]
+        if geom["type"] == "MultiLineString":
+            for line in geom["coordinates"]:
+                locations = [(lat, lon) for lon, lat in line]
                 folium.PolyLine(
                     locations=locations,
                     color=get_color(route_type),
                     weight=4 if route_type in ["subway", "tram"] else 2,
                     opacity=0.8,
-                    tooltip=f"{route_type.upper()} {ref}: {name}"
+                    tooltip=f"{route_type.upper()} {props.get('ref', '')}: {props.get('name', '')}"
                 ).add_to(m)
 
-            if member["type"] == "node" and member.get("role") in ("stop", "stop_position"):
-                node_id = member["ref"]
-                if node_id in seen_stops:
-                    continue
-                seen_stops.add(node_id)
-                tags = stop_tags.get(node_id, {})
-                folium.CircleMarker(
-                    location=(member["lat"], member["lon"]),
-                    radius=4,
-                    color=get_color(route_type),
-                    fill=True,
-                    fill_opacity=0.9,
-                    tooltip=tags.get("name", node_id)
-                ).add_to(m)
+        elif geom["type"] == "Point":
+            lon, lat = geom["coordinates"]
+            folium.CircleMarker(
+                location=(lat, lon),
+                radius=4,
+                color="blue",
+                fill=True,
+                fill_opacity=0.9,
+                tooltip=props.get("name", "stop")
+            ).add_to(m)
 
     m.save("torino_transit_map.html")
     print("Success: 'torino_transit_map.html' generated.")

@@ -7,7 +7,7 @@ EXCLUDE_NETWORKS = ["Flixbus"]
 EXCLUDE_NAMES = []
 
 
-def fetch_transit_network():
+def fetch_lines():
     query = """
         [out:json][timeout:90];
         area["name"="Torino"]["admin_level"="8"]->.a;
@@ -20,8 +20,6 @@ def fetch_transit_network():
         ["name"!~"speciale|festivo",i];
         );
         out geom;
-        node(r)["public_transport"~"stop_position|platform"];
-        out body;
         """
     url = "https://overpass-api.de/api/interpreter"
     headers = {"User-Agent": "TurinTransitMapper/1.0"}
@@ -29,6 +27,51 @@ def fetch_transit_network():
     response.raise_for_status()
     return response.json()
 
+def fetch_transit_network():
+    routes_query = """
+    [out:json][timeout:90];
+    area["name"="Torino"]["admin_level"="8"]->.a;
+    (
+      relation(area.a)
+      ["type"="route"]
+        ["route"~"bus|tram|subway"]
+        ["operator"!~"flixbus|itabus|marino",i]
+        ["ref"!~"frecciarossa",i]
+        ["network"!~"flixbus|TGV",i]
+        ["name"!~"speciale|festivo",i];
+    );
+    out geom;
+    """
+
+    stops_query = """
+    [out:json][timeout:90];
+    area["name"="Torino"]["admin_level"="8"]->.a;
+    (
+      node(area.a)["public_transport"~"stop_position|platform"];
+    );
+    out body;
+    """
+
+    url = "https://overpass-api.de/api/interpreter"
+    headers = {"User-Agent": "TurinTransitMapper/1.0"}
+
+    print("Fetching routes...")
+    r1 = requests.post(url, data={"data": routes_query}, headers=headers, timeout=120)
+    r1.raise_for_status()
+    routes_data = r1.json()
+
+    print("Fetching stops...")
+    r2 = requests.post(url, data={"data": stops_query}, headers=headers, timeout=120)
+    r2.raise_for_status()
+    stops_data = r2.json()
+    
+    print("Routes elements:", len(routes_data.get("elements", [])))
+    print("Stops elements:", len(stops_data.get("elements", [])))
+    if len(routes_data.get("elements", [])) == 0 or len(stops_data.get("elements", [])) == 0:
+        print(r1.text[:500])
+
+    routes_data["elements"] += stops_data["elements"]
+    return routes_data
 
 def is_excluded(props):
     operator = props.get("operator", "").lower()
