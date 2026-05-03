@@ -55,7 +55,22 @@ def create_map(input_file):
                 tooltip=props.get("name", "stop")
             ).add_to(m)
 
-    m.save("torino_transit_map.html")
+        #elif geom["type"] == "Point":
+        #  props_type = props.get("public_transport", "")
+        #  if props_type != "stop_position":
+        #      continue
+        #  lon, lat = geom["coordinates"]
+        #  folium.CircleMarker(
+        #      location=(lat, lon),
+        #      radius=4,
+        #      color="blue",
+        #      fill=True,
+        #      fill_opacity=0.9,
+        #      tooltip=props.get("name", "stop")
+        #  ).add_to(m)
+
+      
+    m.save("maps/stop_position.html")
     print("Success: 'torino_transit_map.html' generated.")
 
 

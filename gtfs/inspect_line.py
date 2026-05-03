@@ -5,8 +5,8 @@ INPUT_FILE = "osm_data/torino_transit.geojson"
 
 FILTER_OPERATOR = ""
 FILTER_NETWORK = ""
-FILTER_NAME = ""
-FILTER_REF = "27"
+FILTER_NAME = "feriale"
+FILTER_REF = ""
 
 
 def matches(props):

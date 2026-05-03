@@ -27,6 +27,27 @@ def fetch_lines():
     response.raise_for_status()
     return response.json()
 
+def fetch_all():
+    query = """
+    [out:json][timeout:190];
+    area["name"="Torino"]["admin_level"="8"]->.a;
+    (
+    relation(area.a)["type"="route"]
+        ["route"~"bus|tram|subway"]
+        ["operator"!~"flixbus|itabus|marino",i]
+        ["network"!~"flixbus|TGV",i]
+        ["name"!~"speciale|festivo",i];
+    )->.routes;
+    .routes out geom;
+    node(r.routes);
+    out body;
+    """
+    url = "https://overpass-api.de/api/interpreter"
+    headers = {"User-Agent": "TurinTransitMapper/1.0"}
+    response = requests.post(url, data={"data": query}, headers=headers, timeout=120)
+    response.raise_for_status()
+    return response.json()
+
 def fetch_transit_network():
     routes_query = """
     [out:json][timeout:90];
@@ -44,13 +65,17 @@ def fetch_transit_network():
     """
 
     stops_query = """
-    [out:json][timeout:90];
-    area["name"="Torino"]["admin_level"="8"]->.a;
-    (
-      node(area.a)["public_transport"~"stop_position|platform"];
-    );
-    out body;
-    """
+[out:json][timeout:90];
+area["name"="Torino"]["admin_level"="8"]->.a;
+(
+  relation(area.a)["type"="route"]["route"~"bus|tram|subway|train"]["operator"!~"[Ff]lixbus|[Ii]tabus|[Mm]arino"];
+)->.routes;
+(
+  node(r.routes)["public_transport"="platform"];
+  node(r.routes)["highway"="bus_stop"];
+);
+out body;
+"""
 
     url = "https://overpass-api.de/api/interpreter"
     headers = {"User-Agent": "TurinTransitMapper/1.0"}
@@ -135,5 +160,5 @@ def save_as_geojson(data, filename="osm_data/torino_transit.geojson"):
     print(f"Saved {len(features)} features to {filename}")
 
 
-data = fetch_transit_network()
+data = fetch_all()
 save_as_geojson(data)
