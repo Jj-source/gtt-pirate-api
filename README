@@ -8,3 +8,4 @@ The real time ones are empty sadly. The static one looks correct (line 71 at lea
 geojson_data["features"]["properties"]
 
 {'colour': 'red', 'from': 'Fermi', 'name': 'M1: Fermi => Bengasi', 'network': 'Formula', 'note': 'Before change check http://wiki.openstreetmap.org/wiki/Torino/Trasporti_pubblici', 'operator': 'Gruppo Torinese Trasporti', 'public_transport:version': '2', 'ref': 'M1', 'route': 'subway', 'to': 'Bengasi', 'type': 'route', 'wikidata': 'Q3238662'}
+

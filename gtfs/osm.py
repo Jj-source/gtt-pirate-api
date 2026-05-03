@@ -1,100 +1,96 @@
+import json
 import requests
 import folium
-import random
-import json
 
-def save_as_geojson(data, filename="torino_transit.geojson"):
-    features = []
-    for rel in data.get("elements", []):
-        if "members" in rel:
-            # Combine all way geometries into a MultiLineString
-            coords = []
-            for member in rel["members"]:
-                if "geometry" in member:
-                    coords.append([[p["lon"], p["lat"]] for p in member["geometry"]])
-            
-            if coords:
-                feature = {
-                    "type": "Feature",
-                    "geometry": {"type": "MultiLineString", "coordinates": coords},
-                    "properties": rel.get("tags", {})
-                }
-                features.append(feature)
-    
-    geojson_data = {"type": "FeatureCollection", "features": features}
-    
-    with open(filename, "w") as f:
-        json.dump(geojson_data, f)
-    print(f"Data saved to {filename}")
+EXCLUDE_OPERATORS = ["flixbus", "itabus", "marino", "eurolines", "blablacar"]
+EXCLUDE_NETWORKS = ["Flixbus"]
+EXCLUDE_NAMES = []
+
 
 def fetch_transit_network():
-    # Regular expression for route types; excludes 'FlixBus' operator
     query = """
-    [out:json][timeout:90];
-    area["name"="Torino"]["admin_level"="8"]->.a;
-    (
-      relation(area.a)["type"="route"]["route"~"bus|tram|subway|train"]["operator"!~"FlixBus"];
-    );
-    out geom;
-    """
+        [out:json][timeout:90];
+        area["name"="Torino"]["admin_level"="8"]->.a;
+        (
+        relation(area.a)["type"="route"]
+        ["route"~"bus|tram|subway"]
+        ["operator"!~"flixbus|itabus|marino",i]
+        ["ref"!~"frecciarossa",i]
+        ["network"!~"flixbus|TGV",i]
+        ["name"!~"speciale|festivo",i];
+        );
+        out geom;
+        node(r)["public_transport"~"stop_position|platform"];
+        out body;
+        """
     url = "https://overpass-api.de/api/interpreter"
     headers = {"User-Agent": "TurinTransitMapper/1.0"}
-    
-    try:
-        response = requests.post(url, data={'data': query}, headers=headers, timeout=120)
-        response.raise_for_status()
-        data = response.json()
-        with open("osm_raw_data.json", "w") as f:
-            json.dump(data, f)
-        return data
-    except Exception as e:
-        print(f"Error fetching data: {e}")
-        return None
+    response = requests.post(url, data={"data": query}, headers=headers, timeout=120)
+    response.raise_for_status()
+    return response.json()
 
-def get_color(route_type):
-    # Standard transit colors
-    colors = {
-        "subway": "red",
-        "tram": "green",
-        "train": "blue",
-        "bus": "orange"
+
+def is_excluded(props):
+    operator = props.get("operator", "").lower()
+    network = props.get("network", "").lower()
+    name = props.get("name", "").lower()
+    if any(x in operator for x in EXCLUDE_OPERATORS):
+        return True
+    if any(x in network for x in EXCLUDE_NETWORKS):
+        return True
+    if any(x in name for x in EXCLUDE_NAMES):
+        return True
+    return False
+
+
+def save_as_geojson(data, filename="osm_data/torino_transit.geojson"):
+    stop_tags = {
+        el["id"]: el.get("tags", {})
+        for el in data.get("elements", [])
+        if el["type"] == "node"
     }
-    return colors.get(route_type, "gray")
 
-def create_map(data):
-    if not data:
-        return
+    features = []
+    seen_stops = set()
 
-    # Center on Torino
-    m = folium.Map(location=[45.0703, 7.6869], zoom_start=12, tiles="cartodbpositron")
-    
-    elements = data.get("elements", [])
-    for rel in elements:
-        if rel["type"] == "relation":
-            tags = rel.get("tags", {})
-            route_type = tags.get("route")
-            ref = tags.get("ref", "")
-            name = tags.get("name", "")
-            
-            # Map members to lines
-            for member in rel.get("members", []):
-                if "geometry" in member:
-                    locations = [(p["lat"], p["lon"]) for p in member["geometry"]]
-                    
-                    folium.PolyLine(
-                        locations=locations,
-                        color=get_color(route_type),
-                        weight=4 if route_type in ['subway', 'tram'] else 2,
-                        opacity=0.8,
-                        tooltip=f"{route_type.upper()} {ref}: {name}"
-                    ).add_to(m)
+    for rel in data.get("elements", []):
+        if rel["type"] != "relation" or "members" not in rel:
+            continue
 
-    m.save("torino_transit_map.html")
-    print("Success: 'torino_transit_map.html' generated.")
+        props = rel.get("tags", {})
+        if is_excluded(props):
+            continue
+
+        coords = [
+            [[p["lon"], p["lat"]] for p in member["geometry"]]
+            for member in rel["members"]
+            if "geometry" in member
+        ]
+        if coords:
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "MultiLineString", "coordinates": coords},
+                "properties": props
+            })
+
+        for member in rel["members"]:
+            if member["type"] != "node" or member.get("role") not in ("stop", "stop_position"):
+                continue
+            node_id = member["ref"]
+            if node_id in seen_stops:
+                continue
+            seen_stops.add(node_id)
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [member["lon"], member["lat"]]},
+                "properties": stop_tags.get(node_id, {})
+            })
+
+    geojson_data = {"type": "FeatureCollection", "features": features}
+    with open(filename, "w") as f:
+        json.dump(geojson_data, f)
+    print(f"Saved {len(features)} features to {filename}")
+
 
 data = fetch_transit_network()
-if data:
-    save_as_geojson(data)
-    #create_map(data)
-else:
-    print("No data to process.")
+save_as_geojson(data)
